@@ -142,8 +142,9 @@ class MessageBuffer(object):
     def init_params():
         MessageBuffer.buffer_size = NicSimulator.config['buffer_size'].next()
         MessageBuffer.num_size_classes = NicSimulator.config['num_size_classes'].next()
+        MessageBuffer.allocation_policy = NicSimulator.config['allocation_policy'].next()
 
-    def enq_msg(self, msg):
+    def enq_msg_flexible(self, msg):
         """Allocate a buffer for the given message. Drop the message if there are no
            available buffers that are large enough to store the message.
         """
@@ -154,6 +155,20 @@ class MessageBuffer(object):
                 self.allocated_bytes += buf_size
                 self.utilized_bytes += msg.size
                 return Buffer(msg, buf_size)
+        return None
+
+    def enq_msg_strict(self, msg):
+        """Allocate a buffer for the given message. Drop the message if there are no
+           available buffers for this message's size class.
+        """
+        for buf_size, num_bufs in self.buffers.items():
+            if (buf_size >= msg.size and num_bufs > 0):
+                self.buffers[buf_size] -= 1
+                self.allocated_bytes += buf_size
+                self.utilized_bytes += msg.size
+                return Buffer(msg, buf_size)
+            else:
+                return None
         return None
 
     def free_buf(self, buf):
@@ -176,7 +191,12 @@ class MessageBuffer(object):
             # wait for a message to arrive
             msg = yield self.rx_queue.get()
             # enqueue message into buffer
-            buf = self.enq_msg(msg)
+            if (MessageBuffer.allocation_policy == "flexible"):
+                buf = self.enq_msg_flexible(msg)
+            elif (MessageBuffer.allocation_policy == "strict"):
+                buf = self.enq_msg_strict(msg)
+            else:
+                sys.exit('Unsupported allocation policy: {}'.format(MessageBuffer.allocation_policy))
             # fire an enqueue event
             if buf is not None:
                 self.enq_event_queue.put(buf)

@@ -29,6 +29,21 @@ def make_cdf_sum(data, colname):
     df['cdf'] = df['cumsum']/float(df['sum'].sum())
     return df
 
+def make_cdf_count(data, colname):
+    """Inputs:
+         data - input dataframe
+         colname - name of column within data to compute CDF of
+       Returns:
+         A dataframe containing a column called 'cdf', which is a
+         CDF of the data in column colname
+    """
+    df = pd.DataFrame()
+    # NOTE: this is "count" rather than "sum", so it is a non-weighted CDF
+    df['counts'] = data.groupby(colname)[colname].count()
+    df['cumsum'] = df['counts'].cumsum()
+    df['cdf'] = df['cumsum']/float(df['counts'].sum())
+    return df
+
 def find_closest(df, colname, val):
     """Return the index of the row with the closest value to val in column colname
     """
@@ -117,22 +132,21 @@ class MessageBuffer(object):
         #### Initialize buffers ####
         # Generate message size samples
         message_sizes = [MessageGenerator.message_size_dist.next() for x in range(100000)]
-        # Compute cumulative fraction of all bytes CDF
-        cdf_df = make_cdf_sum(pd.DataFrame({'message_sizes': message_sizes}), 'message_sizes')
+        # Compute cumulative fraction of all messages CDF
+        cdf_df = make_cdf_count(pd.DataFrame({'message_sizes': message_sizes}), 'message_sizes')
         # Compute size classes by looking at the CDF
         MessageBuffer.size_classes = []
         for val in np.linspace(0.0, 1.0, MessageBuffer.num_size_classes+1)[1:]:
             bound = find_closest(cdf_df, 'cdf', val)
             MessageBuffer.size_classes.append(int(bound))
 #        MessageBuffer.size_classes.append(NicSimulator.max_message_size)
-        # Allocate buffers to each size class
-        bytes_per_class = MessageBuffer.buffer_size/MessageBuffer.num_size_classes
+        # Allocate equal number of buffers to each size class
+        bufs_per_class = MessageBuffer.buffer_size/sum(MessageBuffer.size_classes)
         self.buffers = OrderedDict()
         print 'Buffer Allocations:'
         for buf_size in MessageBuffer.size_classes:
-            num_bufs = bytes_per_class/buf_size
-            self.buffers[buf_size] = num_bufs
-            print '{} bytes = {} buffers ({} total bytes)'.format(buf_size, num_bufs, buf_size*num_bufs)
+            self.buffers[buf_size] = bufs_per_class
+            print '{} bytes = {} buffers ({} total bytes)'.format(buf_size, bufs_per_class, buf_size*bufs_per_class)
         self.allocated_bytes = 0
         self.utilized_bytes = 0
 
